@@ -163,21 +163,21 @@ class MissionPlanner(object):
     """High level control of the robot is implemented here."""
     # Mission planner state list:
     # States are used for internal program control flow, not externally visible.
-    STATE_UNKNOWN     = -1 # Undefined initial state.
-    STATE_STARTUP     = 0 # State used when bringing up subsystems.
-    STATE_SELF_TEST   = 1 # State used when testing subsystems.
-    STATE_NOMINAL     = 2 # All self tests passed.
-    STATE_FAILED      = 3 # Used when one or more critical subsystems fail.
-    STATE_IMPAIRED    = 4 # Used when a non-critical subsystem is down.
-    STATE_SHUTDOWN    = 5 # 
+    STATE_UNKNOWN   = -1 # Undefined initial state.
+    STATE_STARTUP   = 0 # State used when bringing up subsystems.
+    STATE_SELF_TEST = 1 # State used when testing subsystems.
+    STATE_NOMINAL   = 2 # All self tests passed.
+    STATE_FAILED    = 3 # Used when one or more critical subsystems fail.
+    STATE_IMPAIRED  = 4 # Used when a non-critical subsystem is down.
+    STATE_SHUTDOWN  = 5 # Shutting down the system, or the system is shut down. 
     
-    STATE_NAMES = { STATE_UNKNOWN     : 'STATE_UNKNOWN'
-                  , STATE_STARTUP     : 'STATE_STARTUP'
-                  , STATE_SELF_TEST   : 'STATE_SELF_TEST'
-                  , STATE_NOMINAL     : 'STATE_NOMINAL'
-                  , STATE_FAILED      : 'STATE_FAILED'
-                  , STATE_IMPAIRED    : 'STATE_IMPAIRED'
-                  , STATE_SHUTDOWN    : 'STATE_SHUTDOWN' }
+    STATE_NAMES = { STATE_UNKNOWN   : 'STATE_UNKNOWN'
+                  , STATE_STARTUP   : 'STATE_STARTUP'
+                  , STATE_SELF_TEST : 'STATE_SELF_TEST'
+                  , STATE_NOMINAL   : 'STATE_NOMINAL'
+                  , STATE_FAILED    : 'STATE_FAILED'
+                  , STATE_IMPAIRED  : 'STATE_IMPAIRED'
+                  , STATE_SHUTDOWN  : 'STATE_SHUTDOWN' }
     
     __currentState = STATE_UNKNOWN
     logPrint('Setting current state to: STATE_UNKNOWN.')
@@ -231,7 +231,7 @@ class MissionPlanner(object):
                        , RADIO_MODE_MOTION_ENABLED_REMOTE : 'RADIO_MODE_MOTION_ENABLED_REMOTE'
                          }
     
-    THRESHOLD_TARGET_DISTANCE = 8.0 # Meters to target before we look for it...
+    THRESHOLD_TARGET_DISTANCE = 6.0 # Meters to target before we look for it...
     THRESHOLD_WAYPOINT_DISTANCE = 3.0 # Meters to location before we go to the next one.
     
     TURN_LEFT = 0
@@ -279,8 +279,8 @@ class MissionPlanner(object):
                            }
     
     __currentSearchPattern = SEARCH_PATTERN_NONE
-    TARGET_SEARCH_DISTANCE = 8.0 # Meters.
-    TARGET_SCALE_THRESH = 2000.0
+    TARGET_SEARCH_DISTANCE = 6.0 # Distance to travel for each search pattern (meters).
+    TARGET_SCALE_THRESH = 1000.0
     AUTO_AVOID_DEBOUNCE_COUNT = 4
     
     # Thresholds for obstacle avoidance
@@ -320,7 +320,7 @@ class MissionPlanner(object):
     
     
     def __init__(self):
-        """ Constructor
+        """Constructor:
         The target location list is a list of locations the robot must go.
         Start, location 1, 2, 3, etc..
         Format: name: (lat, lon), type
@@ -478,7 +478,7 @@ class MissionPlanner(object):
     
     def __printRangefinderDistances(self, distanceThresholds, printMsg=True
                                     , logLevel=LOG_LEVEL_INFO):
-        
+        """Debug method print distances in cm of rangefinders, and bumper state"""
         message = 'Sonar L: ' + str(self.__messageSpacial.sonarLeft) \
             + ', F: ' + str(self.__messageSpacial.sonarFront) \
             + ', R: ' + str(self.__messageSpacial.sonarRight) \
@@ -699,17 +699,17 @@ class MissionPlanner(object):
         self.__computeLocationDistance()
         self.__computeTurnDirection()
         
-        if self.__noObstaclesDetected() \
-                and self.__currentSearchPattern == self.SEARCH_PATTERN_NONE:
-            
-            self.__motorSpeed = self.SPEED_MAX
-        elif self.__checkSlowDownRequired() or self.__crosstrackError > 45.0:
-            # Slow dowm when cross track error is big.
+        if self.__crosstrackError > 50 or self.__checkSlowDownRequired():
+            # Slow dowm when cross track error is big or obstacles detected.
             self.__motorSpeed = self.SPEED_MIN
-        elif self.__crosstrackError > 25.0:
+        elif self.__crosstrackError > 30:
             self.__motorSpeed = self.SPEED_MED
-        else:
+        elif self.__crosstrackError > 10 or not self.__noObstaclesDetected():
             self.__motorSpeed = self.SPEED_FAST
+        else:
+            # To go max speed, we must have cross track less than 10 degrees,
+            # and there must be no obstacles detected.
+            self.__motorSpeed = self.SPEED_MAX
         
         # If we are within a threshold distance from an intermediate location,
         # then increment to the next location.
@@ -728,15 +728,15 @@ class MissionPlanner(object):
                 if self.currentMode != self.MODE_TARGET_TRACKING:
                     # Stop for a bit. Take a picture.
                     self.__motorSpeed = self.SPEED_STOP
-                    self.__seeConeTimer.resetTimeout(0.5)
+                    self.__seeConeTimer.resetTimeout(1.0)
                     self.saveImages()
-                elif self.__seeConeTimer.checkTimeout() < 0:
+                elif self.__seeConeTimer.checkTimeout() < 0.0:
                     self.__motorSpeed = self.SPEED_MED
                 
                 self.setRunMode(self.MODE_TARGET_TRACKING)
                 self.__moveTowardTarget()
                 
-                if self.__distanceToTarget > 0 and self.__distanceToTarget < 100.0:
+                if self.__distanceToTarget > 0 and self.__distanceToTarget < 100:
                     # 100 cm as ranged by the center sonar rangefinder
                     logPrint('Ranging target: approaching target at slow speed.')
                     self.__motorSpeed = self.SPEED_MIN
@@ -758,7 +758,7 @@ class MissionPlanner(object):
             and self.__checkAutoAvoidRequired():
             
             self.setRunMode(self.MODE_AUTO_AVOID)
-            self.__autoAvoidTimer.resetTimeout(1.5) # 4.0 ~ 10.0 seconds
+            self.__autoAvoidTimer.resetTimeout(2.0) # 4.0 ~ 10.0 seconds
         elif self.__autoAvoidTimer.checkTimeout() < 0 \
             and self.currentMode == self.MODE_AUTO_AVOID:
             
@@ -983,7 +983,7 @@ class MissionPlanner(object):
                                          , showMap)
         except Exception, e:
             print e # and log it?
-            pass
+        
         return
     
     
@@ -1025,14 +1025,18 @@ class MissionPlanner(object):
         # If the heading list is empty, then simply use the previous heading.
         headingSum = 0
         averageHeading = self.__prevAverageHeading
+        
         for heading in self.__headingList:
             headingSum += heading
+        
         if len(self.__headingList) > 0:
             averageHeading = headingSum / float(len(self.__headingList))
+        
         # Average the current and previous heading if we only got a single
         # heading value.
         if len(self.__headingList) == 1 and self.__prevAverageHeading != -1.0:
             averageHeading = (averageHeading + self.__prevAverageHeading) / 2.0
+        
         self.__averageHeading = averageHeading
         
         # If we did not move, then we don't need to update this information.
